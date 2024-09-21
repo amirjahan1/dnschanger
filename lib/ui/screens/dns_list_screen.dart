@@ -30,7 +30,7 @@ class _DNSListScreenState extends State<DNSListScreen> {
               title: Text(dns.name),
               subtitle: Text(dns.ipAddress.join(", ")),
               trailing: IconButton(
-                icon: Icon(Icons.ping),
+                icon: Icon(Icons.network_ping),
                 onPressed: () async {
                   final pingTime = await dnsService.pingDNS(dns.ipAddress[0]);
                   ScaffoldMessenger.of(context).showSnackBar(
