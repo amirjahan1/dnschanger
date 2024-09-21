@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../data/dns_data.dart';
 import '../../services/dns_service.dart';
-import '../../main.dart';  // Import your main file for MethodChannel
+import '../../main.dart'; // Import your main file for MethodChannel
 
 class DNSListScreen extends StatefulWidget {
   @override
@@ -33,10 +33,13 @@ class _DNSListScreenState extends State<DNSListScreen> {
               trailing: IconButton(
                 icon: Icon(Icons.wifi),
                 onPressed: () async {
+                  print(dns.ipAddress);
                   // Call the platform method to set DNS
                   await DNSChangerApp.setDNS(dns.ipAddress);
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("DNS changed to: ${dns.ipAddress.join(', ')}")),
+                    SnackBar(
+                        content: Text(
+                            "DNS changed to: ${dns.ipAddress.join(', ')}")),
                   );
                 },
               ),
