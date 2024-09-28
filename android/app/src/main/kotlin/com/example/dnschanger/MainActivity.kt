@@ -41,6 +41,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun startVpnService(dns: List<String>) {
+       
         val intent = Intent(this, MyVpnService::class.java)
         intent.putExtra("dns1", dns[0])
         if (dns.size > 1) {

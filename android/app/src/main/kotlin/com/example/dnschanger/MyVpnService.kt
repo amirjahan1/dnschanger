@@ -20,16 +20,50 @@ class MyVpnService : VpnService() {
     private lateinit var dns2: String
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-         
+        Log.d("MyVpnService", "onStartCommand called with DNS1: ${intent?.getStringExtra("dns1")}, DNS2: ${intent?.getStringExtra("dns2")}")
+        
         dns1 = intent?.getStringExtra("dns1") ?: "8.8.8.8"
         dns2 = intent?.getStringExtra("dns2") ?: "8.8.4.4"
 
         if (vpnInterface == null) {
+            Log.d("MyVpnService", "Establishing VPN...")
             vpnInterface = establishVPN(dns1, dns2)
-            isRunning = true
-            scope.launch { runVpn() }
+            
+            if (vpnInterface != null) {
+                isRunning = true
+                Log.d("MyVpnService", "Launching the runVpn coroutine...")
+                scope.launch { 
+                    Log.d("MyVpnService", "runVpn coroutine started...")
+                    runVpn() 
+                }
+            } else {
+                Log.e("MyVpnService", "Failed to establish VPN. vpnInterface is null.")
+            }
+        } else {
+            Log.d("MyVpnService", "VPN is already established, skipping...")
         }
+
         return START_STICKY
+    }
+    
+    private fun establishVPN(dns1: String, dns2: String): ParcelFileDescriptor? {
+        Log.d("MyVpnService", "establishVPN called with DNS1: $dns1, DNS2: $dns2")
+        return try {
+            Builder()
+                .addAddress("10.0.0.2", 32)
+                .addRoute("0.0.0.0", 0)
+                .addDnsServer(dns1)
+                .addDnsServer(dns2)
+                .setSession("DNS Changer VPN")
+                .setMtu(1500)
+                .allowFamily(android.system.OsConstants.AF_INET)
+                .allowFamily(android.system.OsConstants.AF_INET6)
+                .addDisallowedApplication(packageName) // Exclude the VPN app itself
+                .establish()
+        } catch (e: Exception) {
+            Log.e("MyVpnService", "Error establishing VPN: ${e.message}", e)
+            null
+        }
     }
 
     override fun onDestroy() {
@@ -40,45 +74,47 @@ class MyVpnService : VpnService() {
         vpnInterface = null
     }
 
-    private fun establishVPN(dns1: String, dns2: String): ParcelFileDescriptor? {
-        Log.d("MyVpnService", "Setting DNS: $dns1, $dns2")
-        return Builder()
-            .addAddress("10.0.0.2", 32)
-            .addRoute("0.0.0.0", 0)
-            .addDnsServer(dns1)
-            .addDnsServer(dns2)
-            .setSession("DNS Changer VPN")
-            .setMtu(1500)
-            .establish()
-    }
-
     private suspend fun runVpn() = withContext(Dispatchers.IO) {
         val packet = ByteBuffer.allocate(32767)
         val input = FileInputStream(vpnInterface?.fileDescriptor)
         val output = FileOutputStream(vpnInterface?.fileDescriptor)
 
         while (isRunning) {
-            packet.clear()
-            val length = input.read(packet.array())
-            if (length > 0) {
-                packet.limit(length)
-                handlePacket(packet, output)
+            try {
+                packet.clear()
+                val length = input.read(packet.array())
+                if (length > 0) {
+                    packet.limit(length)
+                    handlePacket(packet, output)
+                }
+            } catch (e: Exception) {
+                Log.e("MyVpnService", "Error in runVpn: ${e.message}", e)
             }
         }
     }
 
     private fun handlePacket(packet: ByteBuffer, output: FileOutputStream) {
-        val version = packet.get(0).toInt() shr 4
-        if (version == 4) { // IPv4
-            val protocol = packet.get(9).toInt()
-            val sourceIp = packet.getInt(12)
-            val destIp = packet.getInt(16)
+        try {
+            val version = packet.get(0).toInt() shr 4
+            if (version == 4) { // IPv4
+                val protocol = packet.get(9).toInt()
+                val sourceIp = packet.getInt(12)
+                val destIp = packet.getInt(16)
 
-            when (protocol) {
-                17 -> handleUdpPacket(packet, sourceIp, destIp, output)
-                6 -> handleTcpPacket(packet, sourceIp, destIp, output)
-                else -> Log.d("MyVpnService", "Unhandled protocol: $protocol")
+                when (protocol) {
+                    17 -> handleUdpPacket(packet, sourceIp, destIp, output)
+                    6 -> handleTcpPacket(packet, sourceIp, destIp, output)
+                    else -> {
+                        Log.d("MyVpnService", "Forwarding unhandled protocol: $protocol")
+                        output.write(packet.array(), 0, packet.limit())
+                    }
+                }
+            } else {
+                // Forward non-IPv4 packets (e.g., IPv6)
+                output.write(packet.array(), 0, packet.limit())
             }
+        } catch (e: Exception) {
+            Log.e("MyVpnService", "Error handling packet: ${e.message}", e)
         }
     }
 
@@ -101,6 +137,7 @@ class MyVpnService : VpnService() {
         if (destPort == 853) { // DNS over TLS
             Log.d("MyVpnService", "DNS over TLS detected")
             // Handle DNS over TLS (not implemented in this example)
+            output.write(packet.array(), 0, packet.limit()) // Forward the packet for now
         } else {
             forwardTcpPacket(packet, sourceIp, destIp, sourcePort, destPort, output)
         }
@@ -144,25 +181,13 @@ class MyVpnService : VpnService() {
     }
 
     private fun forwardUdpPacket(packet: ByteBuffer, sourceIp: Int, destIp: Int, sourcePort: Int, destPort: Int, output: FileOutputStream) {
-        // Implement UDP forwarding (not shown for brevity)
         Log.d("MyVpnService", "Forwarding UDP: $sourceIp:$sourcePort -> $destIp:$destPort")
-        // For now, just write the original packet back to the output
-        try {
-            output.write(packet.array(), 0, packet.limit())
-        } catch (e: Exception) {
-            Log.e("MyVpnService", "Error forwarding UDP packet: ${e.message}")
-        }
+        output.write(packet.array(), 0, packet.limit())
     }
 
     private fun forwardTcpPacket(packet: ByteBuffer, sourceIp: Int, destIp: Int, sourcePort: Int, destPort: Int, output: FileOutputStream) {
-        // Implement TCP forwarding (not shown for brevity)
         Log.d("MyVpnService", "Forwarding TCP: $sourceIp:$sourcePort -> $destIp:$destPort")
-        // For now, just write the original packet back to the output
-        try {
-            output.write(packet.array(), 0, packet.limit())
-        } catch (e: Exception) {
-            Log.e("MyVpnService", "Error forwarding TCP packet: ${e.message}")
-        }
+        output.write(packet.array(), 0, packet.limit())
     }
 
     private fun ByteBuffer.getInt(index: Int): Int {
