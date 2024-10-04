@@ -15,7 +15,6 @@
         android:label="dnschanger"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-    
         android:usesCleartextTraffic="true"
         >
 
@@ -25,6 +24,7 @@
             android:exported="true"
             android:launchMode="singleTop"
             android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
 
@@ -40,7 +40,7 @@
 
         <!-- VPN Service Declaration -->
         <service
-            android:name=".MyVpnService"
+            android:name=".DnsVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:exported="false">
             <intent-filter>
