@@ -1,27 +1,28 @@
 package com.example.dnschanger
 
-import android.app.Service
 import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.*
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.DatagramChannel
 
 class DnsVpnService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
-    private var isRunning = false
-    private val scope = CoroutineScope(Dispatchers.Default)
+    private val vpnThread = CoroutineScope(Dispatchers.IO)
     private var dns: List<String> = listOf()
+    private var isRunning = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.hasExtra("DNS_SERVERS") == true) {
             dns = intent.getStringArrayListExtra("DNS_SERVERS") ?: listOf()
             startVpn()
         }
-        return Service.START_STICKY
+        return START_STICKY
     }
 
     private fun startVpn() {
@@ -29,7 +30,7 @@ class DnsVpnService : VpnService() {
             vpnInterface = establishVPN()
             if (vpnInterface != null) {
                 isRunning = true
-                scope.launch { runVpn() }
+                vpnThread.launch { runVpn() }
             }
         }
     }
@@ -37,79 +38,133 @@ class DnsVpnService : VpnService() {
     private fun establishVPN(): ParcelFileDescriptor? {
         return try {
             val builder = Builder()
-                .addAddress("10.0.0.2", 32)
-                .addRoute("0.0.0.0", 0)
-                .addDnsServer(dns[0])
                 .setSession("DNS Changer VPN")
-                .setMtu(1500)
+                .addAddress("10.0.0.2", 24)
+                .addRoute("0.0.0.0", 0)
 
-            if (dns.size > 1) {
-                builder.addDnsServer(dns[1])
+            // Add the DNS servers
+            for (server in dns) {
+                builder.addDnsServer(server)
             }
 
             builder.establish()
         } catch (e: Exception) {
+            e.printStackTrace()
             null
         }
     }
 
     private suspend fun runVpn() = withContext(Dispatchers.IO) {
-        val packet = ByteBuffer.allocate(32767)
-        val input = FileInputStream(vpnInterface?.fileDescriptor)
-        val output = FileOutputStream(vpnInterface?.fileDescriptor)
+        val fd = vpnInterface?.fileDescriptor ?: return@withContext
+        val input = FileInputStream(fd)
+        val output = FileOutputStream(fd)
+
+        val buffer = ByteBuffer.allocate(32767)
+        val tunnel = DatagramChannel.open()
+        tunnel.configureBlocking(false)
+        protect(tunnel.socket())
 
         while (isRunning) {
-            try {
-                packet.clear()
-                val length = input.read(packet.array())
-                if (length > 0) {
-                    packet.limit(length)
-                    handlePacket(packet, output)
+            buffer.clear()
+            val length = input.read(buffer.array())
+            if (length > 0) {
+                buffer.limit(length)
+
+                // Parse the packet to check if it's a DNS query
+                val isDns = isDnsPacket(buffer)
+                if (isDns) {
+                    // Forward DNS packet to DNS server
+                    forwardDnsPacket(buffer)
+                } else {
+                    // Forward non-DNS packet
+                    val destAddress = getDestinationAddress(buffer)
+                    if (destAddress != null) {
+                        tunnel.send(buffer, destAddress)
+                    }
                 }
-            } catch (e: Exception) {
-                // Log error
+            }
+
+            // Read responses from tunnel and write back to VPN interface
+            buffer.clear()
+            val senderAddress = tunnel.receive(buffer)
+            if (senderAddress != null) {
+                buffer.flip()
+                output.write(buffer.array(), 0, buffer.limit())
             }
         }
+
+        input.close()
+        output.close()
+        tunnel.close()
     }
 
-    private fun handlePacket(packet: ByteBuffer, output: FileOutputStream) {
-        val version = packet.get(0).toInt() shr 4
-        if (version == 4 && packet.get(9).toInt() == 17) { // Check for UDP
-            forwardDnsQuery(packet, output)
-        } else {
-            output.write(packet.array(), 0, packet.limit())
+    private fun isDnsPacket(buffer: ByteBuffer): Boolean {
+        val position = buffer.position()
+        val version = (buffer.get(0).toInt() shr 4) and 0x0F
+        if (version == 4) {
+            val protocol = buffer.get(9).toInt() and 0xFF
+            val headerLength = (buffer.get(0).toInt() and 0x0F) * 4
+            if (protocol == 17) { // UDP
+                buffer.position(headerLength + 2)
+                val destPort = buffer.getShort().toInt() and 0xFFFF
+                buffer.position(position)
+                return destPort == 53
+            }
         }
+        buffer.position(position)
+        return false
     }
 
-    private fun forwardDnsQuery(packet: ByteBuffer, output: FileOutputStream) {
+    private fun forwardDnsPacket(buffer: ByteBuffer) {
         try {
+            val dnsServer = dns.firstOrNull() ?: return
+            val dnsAddress = InetSocketAddress(dnsServer, 53)
             val channel = DatagramChannel.open()
-            protect(channel.socket()) // Protect the socket from VPN routing
-            channel.connect(java.net.InetSocketAddress(java.net.InetAddress.getByName(dns[0]), 53))
-
-            packet.position(20)
-            channel.write(packet)
-
-            val responsePacket = ByteBuffer.allocate(1500)
-            channel.read(responsePacket)
-            responsePacket.flip()
-
-            val response = ByteBuffer.allocate(20 + responsePacket.limit())
-            response.put(packet.array(), 0, 20)
-            response.put(responsePacket)
-            response.putShort(2, (20 + responsePacket.limit()).toShort())
-
-            output.write(response.array(), 0, response.position())
+            protect(channel.socket())
+            channel.connect(dnsAddress)
+            channel.write(buffer)
+            buffer.clear()
+            val bytesRead = channel.read(buffer)
+            if (bytesRead > 0) {
+                buffer.flip()
+                val output = FileOutputStream(vpnInterface?.fileDescriptor)
+                output.write(buffer.array(), 0, buffer.limit())
+                output.close()
+            }
             channel.close()
         } catch (e: Exception) {
-            // Log error
+            e.printStackTrace()
         }
+    }
+
+    private fun getDestinationAddress(buffer: ByteBuffer): InetSocketAddress? {
+        val position = buffer.position()
+        val version = (buffer.get(0).toInt() shr 4) and 0x0F
+        if (version == 4) {
+            // IPv4
+            val headerLength = (buffer.get(0).toInt() and 0x0F) * 4
+            val protocol = buffer.get(9).toInt() and 0xFF
+            val destAddressBytes = ByteArray(4)
+            buffer.position(16)
+            buffer.get(destAddressBytes, 0, 4)
+            val destAddress = InetAddress.getByAddress(destAddressBytes)
+
+            if (protocol == 6 || protocol == 17) {
+                // TCP or UDP
+                buffer.position(headerLength + 2)
+                val destPort = buffer.getShort().toInt() and 0xFFFF
+                buffer.position(position)
+                return InetSocketAddress(destAddress, destPort)
+            }
+        }
+        buffer.position(position)
+        return null
     }
 
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
-        scope.cancel()
+        vpnThread.cancel()
         vpnInterface?.close()
         vpnInterface = null
     }

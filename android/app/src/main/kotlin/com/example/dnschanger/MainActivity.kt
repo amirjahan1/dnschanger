@@ -8,6 +8,7 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.example.dnschanger/dns"
+    private var dnsList: List<String> = listOf()
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -15,11 +16,12 @@ class MainActivity : FlutterActivity() {
             if (call.method == "setDNS") {
                 val dns = call.argument<List<String>>("dns")
                 if (dns != null && dns.isNotEmpty()) {
+                    dnsList = dns
                     val intent = VpnService.prepare(this)
                     if (intent != null) {
-                        startActivityForResult(intent, 0)
+                        startActivityForResult(intent, VPN_REQUEST_CODE)
                     } else {
-                        startVpnService(dns)
+                        onActivityResult(VPN_REQUEST_CODE, RESULT_OK, null)
                     }
                     result.success("VPN DNS setup started")
                 } else {
@@ -31,12 +33,17 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private val VPN_REQUEST_CODE = 100
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 0 && resultCode == RESULT_OK) {
-            val dns = listOf("8.8.8.8", "8.8.4.4") // Default DNS, you should pass this from Flutter
-            startVpnService(dns)
+        if (requestCode == VPN_REQUEST_CODE) {
+            if (resultCode == RESULT_OK) {
+                startVpnService(dnsList)
+            } else {
+                // User denied VPN permission
+            }
         }
+        super.onActivityResult(requestCode, resultCode, data)
     }
 
     private fun startVpnService(dns: List<String>) {

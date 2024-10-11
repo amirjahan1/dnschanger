@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.dnschanger"
+    namespace 'com.example.dnschanger'
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 

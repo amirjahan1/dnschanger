@@ -33,6 +33,7 @@ class _DNSListScreenState extends State<DNSListScreen> {
               trailing: IconButton(
                 icon: Icon(Icons.wifi),
                 onPressed: () async {
+             
                   // Call the platform method to set DNS
                   await DNSChangerApp.setDNS(dns.ipAddress);
                   ScaffoldMessenger.of(context).showSnackBar(
