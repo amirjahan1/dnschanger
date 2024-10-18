@@ -13,22 +13,29 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
-            if (call.method == "setDNS") {
-                val dns = call.argument<List<String>>("dns")
-                if (dns != null && dns.isNotEmpty()) {
-                    dnsList = dns
-                    val intent = VpnService.prepare(this)
-                    if (intent != null) {
-                        startActivityForResult(intent, VPN_REQUEST_CODE)
+            when (call.method) {
+                "setDNS" -> {
+                    val dns = call.argument<List<String>>("dns")
+                    if (dns != null && dns.isNotEmpty()) {
+                        dnsList = dns
+                        val intent = VpnService.prepare(this)
+                        if (intent != null) {
+                            startActivityForResult(intent, VPN_REQUEST_CODE)
+                        } else {
+                            onActivityResult(VPN_REQUEST_CODE, RESULT_OK, null)
+                        }
+                        result.success("VPN DNS setup started")
                     } else {
-                        onActivityResult(VPN_REQUEST_CODE, RESULT_OK, null)
+                        result.error("INVALID_ARGUMENT", "No DNS provided", null)
                     }
-                    result.success("VPN DNS setup started")
-                } else {
-                    result.error("INVALID_ARGUMENT", "No DNS provided", null)
                 }
-            } else {
-                result.notImplemented()
+                "disconnectVPN" -> {
+                    stopVpnService()
+                    result.success("VPN disconnected")
+                }
+                else -> {
+                    result.notImplemented()
+                }
             }
         }
     }
@@ -50,5 +57,10 @@ class MainActivity : FlutterActivity() {
         val intent = Intent(this, DnsVpnService::class.java)
         intent.putStringArrayListExtra("DNS_SERVERS", ArrayList(dns))
         startService(intent)
+    }
+
+    private fun stopVpnService() {
+        val intent = Intent(this, DnsVpnService::class.java)
+        stopService(intent) // Stops the VPN service
     }
 }

@@ -25,10 +25,18 @@ class DNSChangerApp extends StatelessWidget {
   // Function to set DNS through the MethodChannel
   static Future<void> setDNS(List<String> dns) async {
     try {
-    
       await platform.invokeMethod('setDNS', {"dns": dns});
     } on PlatformException catch (e) {
       print("Failed to set DNS: ${e.message}");
+    }
+  }
+
+  // Function to disconnect VPN through the MethodChannel
+  static Future<void> disconnectVPN() async {
+    try {
+      await platform.invokeMethod('disconnectVPN');
+    } on PlatformException catch (e) {
+      print("Failed to disconnect VPN: ${e.message}");
     }
   }
 }

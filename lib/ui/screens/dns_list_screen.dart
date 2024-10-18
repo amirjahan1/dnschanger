@@ -53,7 +53,6 @@ class _DNSListScreenState extends State<DNSListScreen> {
                       }
                     },
                   ),
-                  // Add Disconnect button
                 ],
               ),
             ),
@@ -84,8 +83,8 @@ class _DNSListScreenState extends State<DNSListScreen> {
   // Function to disconnect the current DNS
   Future<void> disconnectDNS() async {
     try {
-      // You can add a platform method to reset DNS to default or disable it
-      await DNSChangerApp.setDNS([]); // Passing an empty list to disconnect
+      // Call the platform method to disconnect VPN
+      await DNSChangerApp.disconnectVPN();
       setState(() {
         activeDNSIndex = null; // No DNS is active now
       });
