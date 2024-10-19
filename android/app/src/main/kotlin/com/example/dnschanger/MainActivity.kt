@@ -61,6 +61,7 @@ class MainActivity : FlutterActivity() {
 
     private fun stopVpnService() {
         val intent = Intent(this, DnsVpnService::class.java)
-        stopService(intent) // Stops the VPN service
+        intent.action = "STOP_VPN"
+        startService(intent)
     }
 }

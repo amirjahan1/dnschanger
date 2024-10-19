@@ -9,17 +9,31 @@ class DnsVpnService : VpnService() {
     private var dns: List<String> = listOf()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.hasExtra("DNS_SERVERS") == true) {
-            dns = intent.getStringArrayListExtra("DNS_SERVERS") ?: listOf()
-            startVpn()
+        when (intent?.action) {
+            "STOP_VPN" -> {
+                stopVpn()
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            else -> {
+                if (intent?.hasExtra("DNS_SERVERS") == true) {
+                    dns = intent.getStringArrayListExtra("DNS_SERVERS") ?: listOf()
+                    startVpn()
+                }
+                return START_STICKY
+            }
         }
-        return START_STICKY
     }
 
     private fun startVpn() {
         if (vpnInterface == null && dns.isNotEmpty()) {
             vpnInterface = establishVPN()
         }
+    }
+
+    private fun stopVpn() {
+        vpnInterface?.close()
+        vpnInterface = null
     }
 
     private fun establishVPN(): ParcelFileDescriptor? {
@@ -45,7 +59,6 @@ class DnsVpnService : VpnService() {
 
     override fun onDestroy() {
         super.onDestroy()
-        vpnInterface?.close()
-        vpnInterface = null
+        stopVpn()
     }
 }
