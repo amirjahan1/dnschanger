@@ -3,6 +3,7 @@ import '../../data/dns_data.dart';
 import '../../models/dns_model.dart';
 import '../../services/dns_service.dart';
 import '../../main.dart'; // Import your main file for MethodChannel
+import 'package:awesome_notifications/awesome_notifications.dart';
 
 class DNSListScreen extends StatefulWidget {
   @override
@@ -18,6 +19,17 @@ class _DNSListScreenState extends State<DNSListScreen> {
     super.initState();
     dnsService = DNSService();
     activeDNSIndex = null; // Initially, no DNS is active
+
+    // Request permissions if needed
+    requestNotificationPermissions();
+  }
+
+  Future<void> requestNotificationPermissions() async {
+    bool isAllowed = await AwesomeNotifications().isNotificationAllowed();
+    if (!isAllowed) {
+      // You can show a dialog here before requesting permission
+      await AwesomeNotifications().requestPermissionToSendNotifications();
+    }
   }
 
   @override
@@ -34,26 +46,20 @@ class _DNSListScreenState extends State<DNSListScreen> {
             child: ListTile(
               title: Text(dns.name),
               subtitle: Text(dns.ipAddress.join(", ")),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Connect/Disconnect button
-                  IconButton(
-                    icon: Icon(
-                      isActive ? Icons.power_off : Icons.wifi, // Change icon based on active state
-                      color: isActive ? Colors.green : null, // Change color based on active state
-                    ),
-                    onPressed: () async {
-                      if (isActive) {
-                        // If active, disconnect
-                        await disconnectDNS();
-                      } else {
-                        // Connect to this DNS
-                        await connectDNS(dns, index);
-                      }
-                    },
-                  ),
-                ],
+              trailing: IconButton(
+                icon: Icon(
+                  isActive ? Icons.power_off : Icons.wifi,
+                  color: isActive ? Colors.green : null,
+                ),
+                onPressed: () async {
+                  if (isActive) {
+                    // If active, disconnect
+                    await disconnectDNS();
+                  } else {
+                    // Connect to this DNS
+                    await connectDNS(dns, index);
+                  }
+                },
               ),
             ),
           );
@@ -70,6 +76,10 @@ class _DNSListScreenState extends State<DNSListScreen> {
       setState(() {
         activeDNSIndex = index; // Set the active DNS index
       });
+
+      // Show notification with disconnect action
+      await showDisconnectNotification();
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text("Connected to: ${dns.ipAddress.join(', ')}"),
@@ -80,6 +90,28 @@ class _DNSListScreenState extends State<DNSListScreen> {
     }
   }
 
+  Future<void> showDisconnectNotification() async {
+    await AwesomeNotifications().createNotification(
+      content: NotificationContent(
+        id: 0,
+        channelKey: 'dns_disconnect_channel',
+        title: 'DNS Connected',
+        body: 'Tap to disconnect',
+        notificationLayout: NotificationLayout.Default,
+        locked: true, // Notification cannot be swiped away
+        autoDismissible: false,
+      ),
+      actionButtons: [
+        NotificationActionButton(
+          key: 'DISCONNECT_DNS',
+          label: 'Disconnect',
+          autoDismissible: false,
+          actionType: ActionType.KeepOnTop,
+        ),
+      ],
+    );
+  }
+
   // Function to disconnect the current DNS
   Future<void> disconnectDNS() async {
     try {
@@ -88,6 +120,10 @@ class _DNSListScreenState extends State<DNSListScreen> {
       setState(() {
         activeDNSIndex = null; // No DNS is active now
       });
+
+      // Cancel the notification
+      await AwesomeNotifications().cancel(0);
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text("Disconnected from DNS"),
