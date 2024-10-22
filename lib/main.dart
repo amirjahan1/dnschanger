@@ -1,3 +1,4 @@
+// main.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'ui/screens/dns_list_screen.dart';
@@ -7,9 +8,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Awesome Notifications
   AwesomeNotifications().initialize(
-    null, // Use default icon or specify your own
+    null,
     [
       NotificationChannel(
         channelKey: 'dns_disconnect_channel',
@@ -23,10 +23,9 @@ void main() {
         locked: true,
       )
     ],
-    debug: true, // Set to false in production
+    debug: true,
   );
 
-  // Set up global notification listeners
   AwesomeNotifications().setListeners(
     onActionReceivedMethod: onActionReceivedMethod,
   );
@@ -34,30 +33,24 @@ void main() {
   runApp(DNSChangerApp());
 }
 
-// Define the action handler
 @pragma('vm:entry-point')
 Future<void> onActionReceivedMethod(ReceivedAction receivedAction) async {
   if (receivedAction.buttonKeyPressed == 'DISCONNECT_DNS') {
-    // Handle the action here
     await DNSChangerApp.disconnectVPN();
 
-    // Store the connection state
     SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setBool('vpnConnected', false);
-    await prefs.remove('activeDNSIndex');
+    await prefs.remove('activeDNSName');
 
-    // Cancel the notification
     if (receivedAction.id != null) {
       await AwesomeNotifications().cancel(receivedAction.id!);
     }
 
-    // Reset the badge count to 0
     await AwesomeNotifications().resetGlobalBadge();
   }
 }
 
 class DNSChangerApp extends StatelessWidget {
-  // Define a method channel
   static const platform = MethodChannel('com.example.dnschanger/dns');
 
   @override
@@ -68,11 +61,10 @@ class DNSChangerApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: DNSListScreen(), // Your DNS list screen
+      home: DNSListScreen(),
     );
   }
 
-  // Function to set DNS through the MethodChannel
   static Future<void> setDNS(List<String> dns) async {
     try {
       await platform.invokeMethod('setDNS', {"dns": dns});
@@ -81,7 +73,6 @@ class DNSChangerApp extends StatelessWidget {
     }
   }
 
-  // Function to disconnect VPN through the MethodChannel
   static Future<void> disconnectVPN() async {
     try {
       await platform.invokeMethod('disconnectVPN');
