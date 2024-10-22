@@ -4,13 +4,14 @@ import '../../models/dns_model.dart';
 import '../../services/dns_service.dart';
 import '../../main.dart'; // Import your main file for MethodChannel
 import 'package:awesome_notifications/awesome_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class DNSListScreen extends StatefulWidget {
   @override
   _DNSListScreenState createState() => _DNSListScreenState();
 }
 
-class _DNSListScreenState extends State<DNSListScreen> {
+class _DNSListScreenState extends State<DNSListScreen> with WidgetsBindingObserver {
   late DNSService dnsService;
   int? activeDNSIndex; // Variable to track which DNS is currently active
 
@@ -20,8 +21,48 @@ class _DNSListScreenState extends State<DNSListScreen> {
     dnsService = DNSService();
     activeDNSIndex = null; // Initially, no DNS is active
 
+    // Add observer
+    WidgetsBinding.instance.addObserver(this);
+
     // Request permissions if needed
     requestNotificationPermissions();
+
+    // Check VPN state on startup
+    checkVpnState();
+  }
+
+  @override
+  void dispose() {
+    // Remove observer
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // Listen for app lifecycle changes
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // App has resumed, check VPN state
+      checkVpnState();
+    }
+  }
+
+  Future<void> checkVpnState() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    bool vpnConnected = prefs.getBool('vpnConnected') ?? false;
+
+    if (vpnConnected) {
+      int index = prefs.getInt('activeDNSIndex') ?? -1;
+      if (index >= 0 && index < DNSdata.getAllDNS().length) {
+        setState(() {
+          activeDNSIndex = index;
+        });
+      }
+    } else {
+      setState(() {
+        activeDNSIndex = null;
+      });
+    }
   }
 
   Future<void> requestNotificationPermissions() async {
@@ -73,6 +114,12 @@ class _DNSListScreenState extends State<DNSListScreen> {
     try {
       // Call the platform method to set DNS
       await DNSChangerApp.setDNS(dns.ipAddress);
+
+      // Store the connection state
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('vpnConnected', true);
+      await prefs.setInt('activeDNSIndex', index);
+
       setState(() {
         activeDNSIndex = index; // Set the active DNS index
       });
@@ -100,13 +147,14 @@ class _DNSListScreenState extends State<DNSListScreen> {
         notificationLayout: NotificationLayout.Default,
         locked: true, // Notification cannot be swiped away
         autoDismissible: false,
+        badge: 1, // Set the badge count to 1
       ),
       actionButtons: [
         NotificationActionButton(
           key: 'DISCONNECT_DNS',
           label: 'Disconnect',
           autoDismissible: false,
-          actionType: ActionType.KeepOnTop,
+          actionType: ActionType.KeepOnTop, // Brings app to foreground
         ),
       ],
     );
@@ -117,12 +165,21 @@ class _DNSListScreenState extends State<DNSListScreen> {
     try {
       // Call the platform method to disconnect VPN
       await DNSChangerApp.disconnectVPN();
+
+      // Store the connection state
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('vpnConnected', false);
+      await prefs.remove('activeDNSIndex');
+
       setState(() {
         activeDNSIndex = null; // No DNS is active now
       });
 
       // Cancel the notification
       await AwesomeNotifications().cancel(0);
+
+      // Reset the badge count to 0
+      await AwesomeNotifications().resetGlobalBadge();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

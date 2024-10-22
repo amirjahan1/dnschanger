@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'ui/screens/dns_list_screen.dart';
 import 'package:awesome_notifications/awesome_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,14 +35,24 @@ void main() {
 }
 
 // Define the action handler
+@pragma('vm:entry-point')
 Future<void> onActionReceivedMethod(ReceivedAction receivedAction) async {
   if (receivedAction.buttonKeyPressed == 'DISCONNECT_DNS') {
     // Handle the action here
     await DNSChangerApp.disconnectVPN();
+
+    // Store the connection state
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('vpnConnected', false);
+    await prefs.remove('activeDNSIndex');
+
     // Cancel the notification
     if (receivedAction.id != null) {
       await AwesomeNotifications().cancel(receivedAction.id!);
     }
+
+    // Reset the badge count to 0
+    await AwesomeNotifications().resetGlobalBadge();
   }
 }
 
